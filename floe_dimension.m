@@ -75,7 +75,7 @@ P = Nt.*A2;
 
 mfloe = cumsum(Nt.*A2)./sum(Nt.*A2);
 
-L = interp1(mfloe*100,d,sic);
+L = interp1(mfloe*100,d,sic,'pchip');
 
 %- make a matrix where each column has the pmf for all values of x<=L
 
