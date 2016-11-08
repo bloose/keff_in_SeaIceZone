@@ -18,7 +18,7 @@
 
 %% example 1 
 clc;clear,close all;fig1 = figure;
-
+display('Git Hub tests')
 %This example shows the relation of sea ice cover and speed vs gas exchange
 Uwind = [5 10 15];      %Wind speed in m/s
 Uice = 0.02.*Uwind;     % free drift 0.02*Uwind
