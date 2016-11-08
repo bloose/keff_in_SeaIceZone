@@ -1,10 +1,10 @@
-function [keff,s2keff] = keff_SIZ_swh(Uice,Uwind,sic,waterT,airT,varargin),
+function [keff,eps] = keff_SIZ(Uice,Uwind,sic,waterT,airT,varargin),
 
-% function [keff,s2keff] = keff_SIZ_swh(Uice,Uwind,sic,waterT,airT,varargin),
+% function [keff,eps] = keff_SIZ_swh(Uice,Uwind,sic,waterT,airT,varargin),
 %
 % keff_SIZ: The effective gas transfer velocity in the sea ice zone.
 %
-% INPUT:  
+% INPUT:
 %       Uice = ice velocity (m/s)
 %       Uwind = wind speed (not vector) in m/s
 %       sic = sea ice concentration (%)
@@ -15,18 +15,18 @@ function [keff,s2keff] = keff_SIZ_swh(Uice,Uwind,sic,waterT,airT,varargin),
 %   keff = effective gas transfer velocity from sea ice-driven turbulence  [m/d]
 %   s2keff = effective gas transfer velocity from capillary-gravity waves  [m/d]
 %
-% DEPENDENCIES:  
-%   These routines require the Gibbs Seawater toolbox: 
+% DEPENDENCIES:
+%   These routines require the Gibbs Seawater toolbox:
 %   http://www.teos-10.org/
-% 
+%
 % AUTHOR:  Brice Loose (osoberlice@gmail.com)
 %
 % REFERENCE:
-%       Loose et al., (2014), "A parameter model of gas exchange for the 
+%       Loose et al., (2014), "A parameter model of gas exchange for the
 %       seasonal sea ice zone", Ocean Sci., 10(4), doi:10.5194/os-10-1-2014.
 %
 % DISCLAIMER:
-%    This software is provided "as is" without warranty of any kind.  
+%    This software is provided "as is" without warranty of any kind.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
@@ -61,11 +61,12 @@ waterT = waterT+273.16;
 airT = airT+273.16;
 
 %--- COEFICIENTS
-g = 9.8;  
+g = 9.8;
 cd = 1.5e-3;    %- Air-water drag coefficient
 vis = 1.787e-6; %- Kinematic viscosity m2/s
 Sc = 660;       %- Schmidt Number (unitless)
 n = 0.5;        %- Schmidt Number exponent
+% z = 3;
 z = 3;
 z0 = .01;       %- Roughness length
 acp  = 1.005e3; %- Specific heat of air (J/kg/K)
@@ -73,7 +74,6 @@ Lh = 2.26e6;    %- Latent heat of melting (J/kg)
 rho_a = 1.013e5/287.058./(airT);
 rho_w = gsw_rho_t_exact(waterS, waterT-273.16,0);
 
-plt = 'y';
 
 
 
@@ -99,7 +99,7 @@ Jb_sens = 9.8*alpha.*sens_hf./rho_a./acp;
 
 
 
-%--- Andreas and Murphy (1986), "Bulk transfer coefficients for heat and 
+%--- Andreas and Murphy (1986), "Bulk transfer coefficients for heat and
 %- momentum over leads and polynyas". JPO, V. 16, 1875-1883.
 %- Qs = Qsat(ts).  Then Qr is "ref" specific humidity at same height as
 %- Uwind.
@@ -116,7 +116,7 @@ Jb_salt = g.*beta.*waterS.*(JqLf./Lh)./1e3;
 
 
 %- Buoyancy flux from ice melt/freeze;
-%- Based on interface fluxes using the 3 equation solution (IOBL, 6.9). 
+%- Based on interface fluxes using the 3 equation solution (IOBL, 6.9).
 %- <w'T'>_0 = w_0*Q_L + q
 %- <w'S'>_0 = w_0*(Sice-S0)
 %-
@@ -130,7 +130,7 @@ a.Sice = 6;     %- ice salinity
 a.wperc = 1e-7;
 
 %- calculate ice temperature as half way between water and air temp.
-Tice = nanmean([gsw_t_freezing(waterS,0)+273.16 airT],2); 
+Tice = nanmean([gsw_t_freezing(waterS,0)+273.16 airT],2);
 %Tice = nanmean([gsw_t_freezing(waterS,0)+273.16 airT],2);
 %- Kice ~ Kfresh + beta*Sice/Tice
 Kice = 2.04 + 0.117*a.Sice./Tice;
@@ -160,7 +160,6 @@ Jb = nansum([-(1-Ai).*Jb_sens,-(1-Ai).*Jb_Lf, (1-Ai).*Jb_salt, +Ai.*Jb_ice],2);
 rho_a = 1.013e5/287.058./(airT);
 tau_aw = (1-.14)*rho_a.*cd.*(Uwind.^2);
 us_aw = sqrt(tau_aw./rho_w);
-
 % now set roughness to 1 cm, Coriolis parameter for 75N
 kappa = .41;
 f=1.4e-4;
@@ -204,55 +203,31 @@ tau_f =  0.5*rho_w(:).*(z./floe_dim(:)).*Uice.^2;
 %- Friction velocity from form drag
 us_f = sqrt(tau_f./rho_w);
 
+% REPLACE NANs in US_IW with 0
+us_iw(isnan(us_iw)) = 0;
+
+% Sutherland and Melville (2014) microbreaking coeficient for epsilon
+[MB_coef] = Mb_coef_cal(Uwind,sic); %
 
 %- FINAL SHEAR-BASED CALCULATIONS ---%
-us_tot = sqrt(Ai.*(us_f.^2 + us_iw.^2) + us_aw.^2.*(1-Ai));
-
+us_tot = sqrt(Ai.*(us_f.^2 + us_iw.^2) + ((MB_coef'.^(1/3)).*us_aw).^2.*(1-Ai));
 
 
 %- make a logical index for Obukhov convection criteria
 convect = mld(:)./z./Lo;
 use = convect<1;
-eps1 = us_tot.^3/.41/z;
+eps = us_tot.^3/.41/z;
 
 %- Calculate Epsilon from heat flux and shear.
-%- Reference: 
+%- Reference:
 eps_Jb = abs(.58*.84*Jb.*use);
-eps_sh = .84*1.76*eps1;
-
+eps_sh = .84*1.76*eps;
 
 %- calculate k from shear (visc. (m2/s), eps (m2/s3)=> m/s
-%- multiply by 86400 to get m/d.  
+%- multiply by 86400 to get m/d.
 k = .419*Sc^(-n).*(vis.*(nansum([eps_Jb,eps_sh],2))).^.25*86400;
 keff = (1-Ai).*k;
-
-
-%% --------------------------------------------------------------------- %%
-%---------- (3) CAPILLARY-GRAVITY WAVE CALCULATION -----------------------%
-%-------------------------------------------------------------------------%
-%- Calculate the mean-square wave slope from the windspeed;
-
-pp2 = [7.7814e-6 , -0.0001624, 0.0015064, -0.0012018];
-s2 = polyval(pp2,Uwind);
-
-%- k from wave slope in m/d
-s2k = 1.4*.24 + 7.6e5.*(s2).^2.*.24;
-
-s2keff = (1-Ai).*s2k;
-
-
-%-------------------------------------------------------------------------%
-%% PLOT %%
-
-if plt == 'y',
-    figure(33); clf;
-    ax(1) = plot((1-Ai),keff,'k','linewidth',2);
-    hold on;
-    ax(2) = plot((1-Ai),s2keff,'r','linewidth',2);
-    
-    leg = legend(ax,'k_{eff} from ice effects','k_{eff} from capillary-gravity waves',2);
-    set(leg,'box','off','fontsize',12);
-    ylabel('k_{eff} (m/d)');  xlabel('fraction of open water (f)');
 end
+
 
 
